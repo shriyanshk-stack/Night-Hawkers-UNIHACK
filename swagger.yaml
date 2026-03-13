@@ -1,0 +1,162 @@
+openapi: 3.0.0
+info:
+  title: CareerCheatCode API
+  description: >
+    The complete backend architecture for the ultimate AI career acceleration platform. 
+    Handles user profiling, intelligent resume tailoring, job matching, and dynamic skill tree generation.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000
+    description: Local Development
+  - url: https://api.careercheatcode.com
+    description: Production Environment
+tags:
+  - name: User Profile
+    description: Manage user data, raw experience, and base skills.
+  - name: Jobs
+    description: Fetch and search target job descriptions.
+  - name: Resumes
+    description: AI tailoring, formatting, and exporting.
+  - name: Skill Tree
+    description: AI-generated learning paths and gap analysis.
+
+paths:
+  # --- USER PROFILE ENDPOINTS ---
+  /users/me/profile:
+    patch:
+      tags: [User Profile]
+      summary: Update basic user details
+      responses:
+        '200':
+          description: Profile updated successfully
+  
+  /users/me/resume/upload:
+    post:
+      tags: [User Profile]
+      summary: Upload a raw resume file
+      description: Accepts PDF or DOCX files for AI extraction.
+      responses:
+        '200':
+          description: File uploaded successfully
+          
+  /users/me/resume/extract:
+    post:
+      tags: [User Profile]
+      summary: Extract text from uploaded resume
+      description: AI parses the raw document into structured JSON data.
+      responses:
+        '200':
+          description: Extraction successful
+
+  /users/me/skills:
+    patch:
+      tags: [User Profile]
+      summary: Update user's base skills
+      responses:
+        '200':
+          description: Skills updated
+
+  /users/me/experience:
+    patch:
+      tags: [User Profile]
+      summary: Update user's work history
+      responses:
+        '200':
+          description: Experience updated
+
+  # --- JOBS ENDPOINTS ---
+  /jobs:
+    get:
+      tags: [Jobs]
+      summary: Fetch available job listings
+      responses:
+        '200':
+          description: Returns an array of job postings
+
+  # --- RESUMES ENDPOINTS ---
+  /resume/themes:
+    get:
+      tags: [Resumes]
+      summary: Get available visual resume templates
+      responses:
+        '200':
+          description: Returns template metadata
+          
+  /resumes:
+    get:
+      tags: [Resumes]
+      summary: Retrieve all saved tailored resumes for the user
+      responses:
+        '200':
+          description: Returns list of resumes
+
+  /resumes/tailor:
+    post:
+      tags: [Resumes]
+      summary: Tailor a resume to a specific job description
+      description: Takes raw resume text and a job description, using AI to rewrite bullet points and generate a match score.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resumeText:
+                  type: string
+                jobDescription:
+                  type: string
+      responses:
+        '200':
+          description: Successfully generated tailored resume data
+
+  /resumes/{resumeId}/download/pdf:
+    get:
+      tags: [Resumes]
+      summary: Export tailored resume as PDF
+      parameters:
+        - name: resumeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Returns a PDF blob
+
+  /resumes/{resumeId}/download/cover-letter:
+    get:
+      tags: [Resumes]
+      summary: Export AI-generated cover letter
+      parameters:
+        - name: resumeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Returns cover letter text or PDF
+
+  # --- SKILL TREE ENDPOINTS ---
+  /skills/tree:
+    post:
+      tags: [Skill Tree]
+      summary: Generate a learning path based on skill gaps
+      description: Analyzes current skills against a target job title and generates a step-by-step roadmap.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                currentSkills:
+                  type: array
+                  items:
+                    type: string
+                targetJobTitle:
+                  type: string
+      responses:
+        '200':
+          description: Successfully generated skill tree roadmap
