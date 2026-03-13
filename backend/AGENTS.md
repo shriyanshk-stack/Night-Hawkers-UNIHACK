@@ -7,7 +7,7 @@ This guide describes the backend architecture and preferred patterns for coding 
 - Runtime: Node.js + Express
 - Language: TypeScript (strict)
 - Persistence: Supabase Postgres
-- Auth: email/password + opaque session tokens
+- Auth: Supabase Auth (email/password + JWT sessions)
 
 ## Source layout
 
@@ -40,27 +40,24 @@ This guide describes the backend architecture and preferred patterns for coding 
   - `GET /me` (protected)
   - `POST /logout` (protected)
 - Token flow:
-  - Login returns a raw opaque token in JSON body.
-  - Incoming tokens are read from `x-bearer-token`.
-  - Persist only token hashes (`sha256`) in DB.
+  - Login returns `accessToken` and `refreshToken` from Supabase Auth.
+  - Incoming access tokens are read from `Authorization: Bearer <token>`.
+  - Token validation uses Supabase Auth `getUser()` with a user-scoped client.
   - Use `requireAuth` middleware to protect endpoints.
 
 ## Database contract (current)
 
-- `public.app_users`
-  - `id`, `email`, `password_hash`, timestamps
-  - unique email constraint via lower-case unique index
-- `public.auth_sessions`
-  - `id`, `user_id`, `token_hash`, `expires_at`, `revoked_at`, `last_used_at`
+- User identities and sessions are managed by Supabase Auth (`auth.users` + auth session internals).
+- Do not store app passwords in custom tables.
 
 ## Environment variables
 
 - Required:
   - `SUPABASE_URL`
-  - `SUPABASE_SERVICE_ROLE_KEY`
+  - `SUPABASE_ANON_KEY`
 - Optional:
   - `PORT` (default `3000`)
-  - `TOKEN_TTL_HOURS` (default `168`)
+  - `SUPABASE_SERVICE_ROLE_KEY` (only if adding admin-level operations)
 
 Never commit real env values; keep examples in `.env.example`.
 
@@ -69,7 +66,7 @@ Never commit real env values; keep examples in `.env.example`.
 1. Add route in `src/routes/*`.
 2. Attach `requireAuth` middleware.
 3. Put non-HTTP logic in a service function.
-4. Return typed/safe response objects (no password hashes/tokens in logs).
+4. Return typed/safe response objects (never log tokens or secrets).
 5. Run `npm run build` before finalizing.
 
 ## Error handling pattern

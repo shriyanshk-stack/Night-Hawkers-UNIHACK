@@ -1,10 +1,4 @@
-import crypto from "node:crypto";
-
-import bcrypt from "bcryptjs";
-
-import { supabase } from "../lib/supabase";
-
-const tokenTtlHours = Number(process.env.TOKEN_TTL_HOURS) || 168;
+import { createUserScopedClient, supabaseAuth } from "../lib/supabase";
 
 export class AuthServiceError extends Error {
   public statusCode: number;
@@ -21,9 +15,18 @@ export type SafeUser = {
   createdAt: string;
 };
 
-export type AuthSession = {
-  sessionId: string;
+export type AuthenticatedUser = {
   userId: string;
+  email: string;
+  accessToken: string;
+};
+
+export type LoginResponse = {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  tokenType: string;
+  user: SafeUser;
 };
 
 export const normalizeEmail = (email: string): string => email.trim().toLowerCase();
@@ -31,8 +34,16 @@ export const normalizeEmail = (email: string): string => email.trim().toLowerCas
 export const isValidEmail = (email: string): boolean =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
-const hashToken = (token: string): string =>
-  crypto.createHash("sha256").update(token).digest("hex");
+const mapSafeUser = (rawUser: {
+  id: string;
+  email?: string;
+  created_at?: string;
+  createdAt?: string;
+}): SafeUser => ({
+  id: rawUser.id,
+  email: rawUser.email ?? "",
+  createdAt: rawUser.created_at ?? rawUser.createdAt ?? new Date().toISOString(),
+});
 
 export const registerUser = async (
   emailInput: string,
@@ -40,138 +51,96 @@ export const registerUser = async (
 ): Promise<SafeUser> => {
   const email = normalizeEmail(emailInput);
   const password = passwordInput.trim();
-  const passwordHash = await bcrypt.hash(password, 12);
 
-  const { data, error } = await supabase
-    .from("app_users")
-    .insert({
-      email,
-      password_hash: passwordHash,
-    })
-    .select("id, email, created_at")
-    .single();
+  const { data, error } = await supabaseAuth.auth.signUp({
+    email,
+    password,
+  });
 
-  if (error?.code === "23505") {
+  if (error?.status === 400) {
+    throw new AuthServiceError(400, error.message);
+  }
+
+  if (error?.status === 429) {
+    throw new AuthServiceError(429, "Too many registration attempts. Try again later.");
+  }
+
+  if (error?.status === 422 || error?.status === 409) {
     throw new AuthServiceError(409, "Email already registered.");
   }
 
-  if (error || !data) {
+  if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+    throw new AuthServiceError(409, "Email already registered.");
+  }
+
+  if (error || !data.user) {
     throw new AuthServiceError(500, "Failed to register user.");
   }
 
-  return {
-    id: data.id,
-    email: data.email,
-    createdAt: data.created_at,
-  };
+  return mapSafeUser(data.user);
 };
 
 export const loginUser = async (
   emailInput: string,
   passwordInput: string,
-): Promise<{ token: string; expiresAt: string }> => {
+): Promise<LoginResponse> => {
   const email = normalizeEmail(emailInput);
 
-  const { data: user, error: userError } = await supabase
-    .from("app_users")
-    .select("id, password_hash")
-    .eq("email", email)
-    .maybeSingle();
+  const { data, error } = await supabaseAuth.auth.signInWithPassword({
+    email,
+    password: passwordInput,
+  });
 
-  if (userError) {
+  if (error?.status === 429) {
+    throw new AuthServiceError(429, "Too many login attempts. Try again later.");
+  }
+
+  if (error?.status === 400 || error?.status === 401) {
+    throw new AuthServiceError(401, "Invalid credentials.");
+  }
+
+  if (error || !data.user || !data.session) {
     throw new AuthServiceError(500, "Failed to process login.");
   }
 
-  if (!user) {
-    throw new AuthServiceError(401, "Invalid credentials.");
-  }
-
-  const passwordMatches = await bcrypt.compare(passwordInput, user.password_hash);
-
-  if (!passwordMatches) {
-    throw new AuthServiceError(401, "Invalid credentials.");
-  }
-
-  const token = crypto.randomBytes(32).toString("hex");
-  const tokenHash = hashToken(token);
-  const expiresAt = new Date(Date.now() + tokenTtlHours * 60 * 60 * 1000);
-
-  const { error: sessionError } = await supabase.from("auth_sessions").insert({
-    user_id: user.id,
-    token_hash: tokenHash,
-    expires_at: expiresAt.toISOString(),
-  });
-
-  if (sessionError) {
-    throw new AuthServiceError(500, "Failed to create session.");
-  }
-
   return {
-    token,
-    expiresAt: expiresAt.toISOString(),
+    accessToken: data.session.access_token,
+    refreshToken: data.session.refresh_token,
+    expiresIn: data.session.expires_in,
+    tokenType: data.session.token_type,
+    user: mapSafeUser(data.user),
   };
 };
 
-export const getSessionFromToken = async (
-  providedToken: string,
-): Promise<AuthSession> => {
-  const tokenHash = hashToken(providedToken.trim());
-  const nowIso = new Date().toISOString();
+export const getUserFromAccessToken = async (
+  accessToken: string,
+): Promise<AuthenticatedUser> => {
+  const userClient = createUserScopedClient(accessToken);
 
-  const { data: session, error } = await supabase
-    .from("auth_sessions")
-    .select("id, user_id")
-    .eq("token_hash", tokenHash)
-    .is("revoked_at", null)
-    .gt("expires_at", nowIso)
-    .maybeSingle();
+  const { data, error } = await userClient.auth.getUser();
 
-  if (error) {
-    throw new AuthServiceError(500, "Failed to validate session.");
-  }
-
-  if (!session) {
+  if (error?.status === 401 || error?.status === 403) {
     throw new AuthServiceError(401, "Invalid or expired token.");
   }
 
-  await supabase
-    .from("auth_sessions")
-    .update({ last_used_at: nowIso })
-    .eq("id", session.id);
-
-  return {
-    sessionId: session.id,
-    userId: session.user_id,
-  };
-};
-
-export const getUserById = async (userId: string): Promise<SafeUser> => {
-  const { data: user, error } = await supabase
-    .from("app_users")
-    .select("id, email, created_at")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (error) {
-    throw new AuthServiceError(500, "Failed to fetch user.");
-  }
-
-  if (!user) {
-    throw new AuthServiceError(404, "User not found.");
+  if (error || !data.user || !data.user.email) {
+    throw new AuthServiceError(500, "Failed to validate access token.");
   }
 
   return {
-    id: user.id,
-    email: user.email,
-    createdAt: user.created_at,
+    userId: data.user.id,
+    email: data.user.email,
+    accessToken,
   };
 };
 
-export const logoutSession = async (sessionId: string): Promise<void> => {
-  const { error } = await supabase
-    .from("auth_sessions")
-    .update({ revoked_at: new Date().toISOString() })
-    .eq("id", sessionId);
+export const logoutCurrentSession = async (accessToken: string): Promise<void> => {
+  const userClient = createUserScopedClient(accessToken);
+  const { error } = await userClient.auth.signOut();
+
+  if (error?.status === 401 || error?.status === 403) {
+    throw new AuthServiceError(401, "Invalid or expired token.");
+  }
 
   if (error) {
     throw new AuthServiceError(500, "Failed to log out.");

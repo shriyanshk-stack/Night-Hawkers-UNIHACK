@@ -11,7 +11,7 @@ This file gives coding agents a fast overview of the repository and the conventi
 ## Current architecture status
 
 - Backend auth is implemented and split by layers (`routes` / `services` / `middleware` / `lib`).
-- Supabase is the persistence layer for auth users + sessions.
+- Supabase is the persistence layer and auth provider (Supabase Auth).
 - Frontend is still mostly scaffold-level and not fully wired to backend auth yet.
 
 ## General coding rules
@@ -38,7 +38,7 @@ This file gives coding agents a fast overview of the repository and the conventi
 - Protected routes:
   - `GET /me`
   - `POST /logout`
-- Token transport: request header `x-bearer-token`
-- Login response returns token in JSON body (not response headers).
+- Token transport: `Authorization: Bearer <accessToken>`
+- Login response returns Supabase session tokens in JSON body.
 
 For implementation details, see `backend/AGENTS.md`.

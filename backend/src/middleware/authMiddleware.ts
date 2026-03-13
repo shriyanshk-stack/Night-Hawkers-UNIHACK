@@ -1,24 +1,39 @@
 import { NextFunction, Request, Response } from "express";
 
-import { AuthServiceError, getSessionFromToken } from "../services/authService";
+import { AuthServiceError, getUserFromAccessToken } from "../services/authService";
+
+const extractBearerToken = (authorizationHeader?: string): string | null => {
+  if (!authorizationHeader) {
+    return null;
+  }
+
+  const [scheme, token] = authorizationHeader.split(" ");
+
+  if (!scheme || !token || scheme.toLowerCase() !== "bearer") {
+    return null;
+  }
+
+  return token.trim();
+};
 
 export const requireAuth = async (
   req: Request,
   res: Response,
   next: NextFunction,
 ): Promise<void> => {
-  const providedToken = req.header("x-bearer-token")?.trim();
+  const providedToken = extractBearerToken(req.header("authorization"));
 
   if (!providedToken) {
-    res.status(401).json({ error: "Missing authentication token." });
+    res.status(401).json({ error: "Missing or invalid bearer token." });
     return;
   }
 
   try {
-    const session = await getSessionFromToken(providedToken);
+    const authenticatedUser = await getUserFromAccessToken(providedToken);
     req.auth = {
-      userId: session.userId,
-      sessionId: session.sessionId,
+      userId: authenticatedUser.userId,
+      email: authenticatedUser.email,
+      accessToken: authenticatedUser.accessToken,
     };
     next();
   } catch (error) {

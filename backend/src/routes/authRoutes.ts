@@ -3,10 +3,9 @@ import { Response, Router } from "express";
 import { requireAuth } from "../middleware/authMiddleware";
 import {
   AuthServiceError,
-  getUserById,
   isValidEmail,
   loginUser,
-  logoutSession,
+  logoutCurrentSession,
   registerUser,
 } from "../services/authService";
 
@@ -81,22 +80,12 @@ authRouter.get("/me", requireAuth, async (req, res) => {
     return;
   }
 
-  try {
-    const user = await getUserById(req.auth.userId);
-    res.status(200).json({
-      user,
-      session: {
-        id: req.auth.sessionId,
-      },
-    });
-  } catch (error) {
-    if (error instanceof AuthServiceError) {
-      res.status(error.statusCode).json({ error: error.message });
-      return;
-    }
-
-    res.status(500).json({ error: "Failed to fetch user." });
-  }
+  res.status(200).json({
+    user: {
+      id: req.auth.userId,
+      email: req.auth.email,
+    },
+  });
 });
 
 authRouter.post("/logout", requireAuth, async (req, res) => {
@@ -106,7 +95,7 @@ authRouter.post("/logout", requireAuth, async (req, res) => {
   }
 
   try {
-    await logoutSession(req.auth.sessionId);
+    await logoutCurrentSession(req.auth.accessToken);
     res.status(200).json({ message: "Logged out." });
   } catch (error) {
     if (error instanceof AuthServiceError) {

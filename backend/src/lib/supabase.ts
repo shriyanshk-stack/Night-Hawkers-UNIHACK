@@ -3,10 +3,27 @@ import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseServiceRoleKey) {
-  throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.");
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY are required.");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+const baseAuthConfig = {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+  },
+};
+
+export const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, baseAuthConfig);
+
+export const createUserScopedClient = (accessToken: string) =>
+  createClient(supabaseUrl, supabaseAnonKey, {
+    ...baseAuthConfig,
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  });
